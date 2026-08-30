@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "model": {
+    "repository": "Qwen/Qwen3.8-Flash-Next",
+    "revision": "f5d08274bafd880402bd16f5e3e6c514136ec06c",
+    "transformers_version": "5.16.0",
+    "transformers_commit": "93d1bcfbd2af5798e2f66bf7955e31a537902b64"
+  },
+  "scope": "text-only ordinary autoregressive generation",
+  "package_precision": "bf16",
+  "input_ids": [123, 456, 789, 248044, 2345, 3456, 4567, 5678, 6789, 7890, 8901, 9012],
+  "cache": {
+    "prefill_length": 5,
+    "decode_chunks": [1, 2, 4]
+  },
+  "tolerances": {
+    "reference_cache": {
+      "atol": 0.005,
+      "rtol": 0.005
+    },
+    "mlx_cache": {
+      "atol": 0.005,
+      "rtol": 0.005
+    },
+    "mlx_reference": {
+      "atol": 0.05,
+      "rtol": 0.02,
+      "status": "provisional until the large-host run"
+    }
+  }
+}
