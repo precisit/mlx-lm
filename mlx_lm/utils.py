@@ -58,6 +58,7 @@ MODEL_REMAPPING = {
     "xverse": "llama",
     "gemma4_unified": "gemma4",  # encoder-free multimodal variant; vision/audio weights stripped by sanitize()
     "deepseek_v41_text": "deepseek_v41",
+    "qwen4_exp_text": "qwen4_exp",
 }
 
 MODEL_ARCHITECTURE_REMAPPING = {
@@ -485,6 +486,18 @@ def load_model(
         if hf_quant_config.exists():
             with open(hf_quant_config, "r") as fid:
                 config["quantization_config"] = json.load(fid)
+
+    if config.get("model_type") == "qwen4_exp_text":
+        shard_key = next(
+            (
+                key
+                for key in weights
+                if key.endswith("ngram_embedding.shard_0.weight")
+            ),
+            None,
+        )
+        if shard_key is not None:
+            config["ngram_shard_rows"] = weights[shard_key].shape[0]
 
     model_args = model_args_class.from_dict(config)
 
