@@ -54,6 +54,7 @@ MODEL_REMAPPING = {
     "minimax_m2": "minimax",
     "iquestcoder": "llama",
     "gemma4_unified": "gemma4",  # encoder-free multimodal variant; vision/audio weights stripped by sanitize()
+    "qwen4_exp_text": "qwen4_exp",
 }
 
 MODEL_ARCHITECTURE_REMAPPING = {
@@ -377,6 +378,18 @@ def load_model(
         text_config = config.get("text_config", {})
         if "quantization_config" in text_config:
             config["quantization_config"] = text_config["quantization_config"]
+
+    if config.get("model_type") == "qwen4_exp_text":
+        shard_key = next(
+            (
+                key
+                for key in weights
+                if key.endswith("ngram_embedding.shard_0.weight")
+            ),
+            None,
+        )
+        if shard_key is not None:
+            config["ngram_shard_rows"] = weights[shard_key].shape[0]
 
     model_args = model_args_class.from_dict(config)
 
