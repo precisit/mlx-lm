@@ -17,11 +17,13 @@ from mlx_lm.models.qwen4_exp import (
     ModelArgs,
     Qwen4ExpGatedDeltaNet,
     Qwen4ExpNGramEmbedding,
+    Qwen4ExpNGramShard,
+    Qwen4ExpQuantizedNGramShard,
     Qwen4ExpSparseAttention,
     Qwen4ExpSparseMoeBlock,
     _qsa_select_tokens,
 )
-from mlx_lm.models.switch_layers import QuantizedSwitchLinear
+from mlx_lm.models.switch_layers import QuantizedSwitchLinear, SwitchLinear
 from mlx_lm.utils import load_model
 
 
@@ -489,6 +491,63 @@ class TestQwen4Exp(unittest.TestCase):
             mx.save_safetensors(str(package / "model.safetensors"), weights)
             with self.assertRaisesRegex(ValueError, "hash buffers require 24"):
                 load_model(package, lazy=True)
+
+    def test_nvfp4_ngram_shard_global_scale(self):
+        shard = Qwen4ExpNGramShard(12, 32)
+        dense = _values("shard", (12, 32)) * 8
+        amax = mx.max(mx.abs(dense)).astype(mx.float32)
+        weight, scales = mx.quantize(
+            dense, group_size=16, bits=4, mode="nvfp4", global_scale=amax
+        )
+        quantized = shard.to_quantized(16, 4, mode="nvfp4", global_scale=True)
+        self.assertIsInstance(quantized, Qwen4ExpQuantizedNGramShard)
+        quantized.weight, quantized.scales = weight, scales
+        quantized.global_scale = amax
+        expected = mx.dequantize(
+            weight,
+            scales,
+            group_size=16,
+            bits=4,
+            mode="nvfp4",
+            global_scale=amax,
+            dtype=mx.float32,
+        ).astype(mx.bfloat16)
+        ids = mx.array([[0, 5, 11]])
+        self.assertTrue(mx.array_equal(quantized(ids), expected[ids]))
+        plain = shard.to_quantized(16, 4, mode="nvfp4")
+        self.assertNotIsInstance(plain, Qwen4ExpQuantizedNGramShard)
+
+    def test_nvfp4_ngram_package_loads_with_global_scale(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "nvfp4_ple"
+            config = tiny_config()
+            weights = producer_weights(config)
+            prefix = "model.layers.1.ple.ple_embedding.ngram_embedding"
+            amax = mx.array(0.03, dtype=mx.float32)
+            for shard_index in range(config["split_ngram_parts"]):
+                key = f"{prefix}.shard_{shard_index}"
+                weight, scales = mx.quantize(
+                    weights[f"{key}.weight"],
+                    group_size=16,
+                    bits=4,
+                    mode="nvfp4",
+                    global_scale=amax,
+                )
+                weights[f"{key}.weight"] = weight
+                weights[f"{key}.scales"] = scales
+                weights[f"{key}.global_scale"] = amax
+            config["quantization"] = {"group_size": 16, "bits": 4, "mode": "nvfp4"}
+            config.pop("ngram_shard_rows")
+            package.mkdir()
+            (package / "config.json").write_text(json.dumps(config))
+            mx.save_safetensors(str(package / "model.safetensors"), weights)
+            model, _ = load_model(package)
+            shard = model.layers[1].ple.ple_embedding.ngram_embedding.shard_1
+            self.assertIsInstance(shard, Qwen4ExpQuantizedNGramShard)
+            self.assertEqual(shard.global_scale.item(), amax.item())
+            self.assertIsInstance(model.layers[0].mlp.switch_mlp.gate_proj, SwitchLinear)
+            logits = model(mx.array([[4, 5, 6, 7]], dtype=mx.int32))
+            self.assertTrue(mx.all(mx.isfinite(logits)).item())
 
 
 if __name__ == "__main__":

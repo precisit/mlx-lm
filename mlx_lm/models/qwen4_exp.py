@@ -632,6 +632,38 @@ class Qwen4ExpGatedResidual(nn.Module):
         return mixed, x, injection
 
 
+class Qwen4ExpQuantizedNGramShard(nn.QuantizedEmbedding):
+    """An nvfp4 n-gram shard with a tensor scale (modelopt weight_scale_2)."""
+
+    def __init__(self, num_embeddings, dims, group_size=None, bits=None, mode="nvfp4"):
+        super().__init__(num_embeddings, dims, group_size, bits, mode=mode)
+        self.global_scale = mx.ones((), dtype=mx.float32)
+        self.freeze()
+
+    def __call__(self, x):
+        # Dequantize in float32 with the tensor scale, then round once.
+        values = mx.dequantize(
+            self["weight"][x],
+            scales=self["scales"][x],
+            group_size=self.group_size,
+            bits=self.bits,
+            mode=self.mode,
+            global_scale=self["global_scale"],
+            dtype=mx.float32,
+        )
+        return values.astype(mx.bfloat16)
+
+
+class Qwen4ExpNGramShard(nn.Embedding):
+    def to_quantized(
+        self, group_size=None, bits=None, mode="affine", global_scale=False, **kwargs
+    ):
+        if not global_scale:
+            return super().to_quantized(group_size, bits, mode=mode, **kwargs)
+        rows, dims = self.weight.shape
+        return Qwen4ExpQuantizedNGramShard(rows, dims, group_size, bits, mode=mode)
+
+
 class Qwen4ExpShardedEmbedding(nn.Module):
     def __init__(self, num_shards: int, rows: int, dims: int):
         super().__init__()
@@ -642,7 +674,7 @@ class Qwen4ExpShardedEmbedding(nn.Module):
         if rows <= 0:
             raise ValueError("The package must provide an n-gram shard row count.")
         for index in range(num_shards):
-            setattr(self, f"shard_{index}", nn.Embedding(rows, dims))
+            setattr(self, f"shard_{index}", Qwen4ExpNGramShard(rows, dims))
 
     def set_head_ranges(self, offsets: mx.array, sizes: mx.array):
         offsets = offsets.tolist()
