@@ -122,3 +122,15 @@ documented stub. These artifacts cannot satisfy ordinary `mlx_lm.load` and
 reference-generation tests until the producer regenerates them with a valid
 table and pinned tokenizer assets. The runtime reports the table mismatch
 explicitly instead of guessing a different hashing rule.
+
+## Host-memory classification (2026-10-17, from precisit/modelopt-to-mlx Stage 2)
+
+**Unsafe on a 128 GB host: Qwen3.8-Flash-Next with the PLE n-gram table resident.** On altair
+(M5 Max, 128 GB, no swap), this runtime with the NVIDIA FP4-Local pack and a resident PLE
+(26.8 GiB) peaked at **117.7 GiB** of MLX memory on a 2 k-token prompt. The lab budget after a
+watchdog panic on that host is a ≤ 105 GiB whole-machine footprint (hq-infra). Above it, macOS
+can hang until the watchdog reboots it: wired and anonymous memory cannot be paged without swap.
+Do not run this configuration on a 128 GB machine. It needs an mmap/offloaded PLE path (an
+upstream candidate, oMLX has one) or a larger host. Evidence: modelopt-to-mlx
+`stage2/receipts/s2-fingerprint-fork.json`, `stage2/PROTOCOL.md` amendment 5,
+generic-dev-docs lesson 7.
