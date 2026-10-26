@@ -69,6 +69,7 @@ class ModelArgs(BaseModelArgs):
     ngram_shard_rows: int = 0
     seed: int = 1234
     eos_token_id: Union[int, List[int]] = 248044
+    ngram_eos_token_id: Optional[Union[int, List[int]]] = None
 
     def __post_init__(self):
         self.output_gate_type = self.output_gate_type or self.hidden_act
@@ -729,11 +730,12 @@ class Qwen4ExpNGramEmbedding(nn.Module):
         self.context_len = args.ngram_size - 1
         self.heads_per_ngram = args.heads_per_ngram
         self.ngram_heads = self.context_len * self.heads_per_ngram
-        self.eos_token_id = (
-            args.eos_token_id[0]
-            if isinstance(args.eos_token_id, list)
+        eos = (
+            args.ngram_eos_token_id
+            if args.ngram_eos_token_id is not None
             else args.eos_token_id
         )
+        self.eos_token_id = eos[0] if isinstance(eos, list) else eos
         head_dim = args.ple_embed_dim // self.ngram_heads
         self.layer_multipliers = mx.zeros(args.ngram_size, dtype=mx.int64)
         self.ngram_heads_vocab_sizes = mx.zeros(

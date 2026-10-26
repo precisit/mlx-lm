@@ -345,6 +345,28 @@ class TestQwen4Exp(unittest.TestCase):
         )
         self.assertTrue(mx.array_equal(ids, expected_ids))
 
+    def test_ngram_eos_ignores_generation_config(self):
+        # generation_config.json's eos list must not change the n-gram hash (the HF reference uses config.json's id)
+        with tempfile.TemporaryDirectory() as directory:
+            plain = Path(directory) / "plain"
+            write_package(plain)
+            stops = Path(directory) / "stops"
+            write_package(stops)
+            eos = json.loads((stops / "config.json").read_text())["eos_token_id"]
+            (stops / "generation_config.json").write_text(json.dumps({"eos_token_id": [eos + 1, eos]}))
+            tokens = mx.array([[4, 5, 6, 1, 7, 8, 9]], dtype=mx.int32)
+            a, config_a = load_model(plain, lazy=True)
+            b, config_b = load_model(stops, lazy=True)
+            self.assertEqual(config_b["eos_token_id"], [eos + 1, eos])
+            ngram_eos = lambda m: {
+                x.eos_token_id
+                for _, x in m.named_modules()
+                if isinstance(x, Qwen4ExpNGramEmbedding)
+            }
+            self.assertEqual(ngram_eos(a), {eos})
+            self.assertEqual(ngram_eos(b), {eos})
+            self.assertTrue(mx.array_equal(a(tokens), b(tokens)))
+
     def test_unquantized_load_reference_logits_and_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             package = Path(directory) / "bf16"

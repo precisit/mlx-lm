@@ -488,6 +488,11 @@ def load_model(
                 config["quantization_config"] = json.load(fid)
 
     if config.get("model_type") == "qwen4_exp_text":
+        # The n-gram hash pads and segments on the model config's eos id (the HF reference reads config.eos_token_id,
+        # i.e. text_config's), but load_config replaces eos_token_id with generation_config's stopping list, whose
+        # first entry is a different token for Qwen3.8-Flash-Next ([248046, 248044] vs 248044). Keep config.json's.
+        with open(Path(model_path) / "config.json", "r") as f:
+            config["ngram_eos_token_id"] = json.load(f).get("eos_token_id")
         shard_key = next(
             (
                 key
